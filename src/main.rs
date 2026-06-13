@@ -35,6 +35,7 @@ const TASKBAR_MONITOR_INTERVAL_MS: u64 = 100;
 enum IPCMessage {
     Show,
     Hide,
+    Toggle,
     Quit,
 }
 
@@ -320,12 +321,14 @@ unsafe extern "system" fn ipc_window_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> windows::Win32::Foundation::LRESULT {
-    let (msg_show, msg_hide, msg_quit) = cli::get_message_ids();
+    let (msg_show, msg_hide, msg_toggle, msg_quit) = cli::get_message_ids();
 
     let ipc_message = if msg == msg_show {
         Some(IPCMessage::Show)
     } else if msg == msg_hide {
         Some(IPCMessage::Hide)
+    } else if msg == msg_toggle {
+	Some(IPCMessage::Toggle)
     } else if msg == msg_quit {
         PostQuitMessage(0);
         Some(IPCMessage::Quit)
@@ -364,9 +367,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tray_menu = Menu::new();
     let show_item = MenuItem::new("Show Taskbar", true, None);
     let hide_item = MenuItem::new("Hide Taskbar", true, None);
+    let toggle_item = MenuItem::new("Toggle Taskbar", true, None);
     let quit_item = MenuItem::new("Quit", true, None);
     tray_menu.append(&show_item)?;
     tray_menu.append(&hide_item)?;
+    tray_menu.append(&toggle_item)?;
     tray_menu.append(&quit_item)?;
 
     // Create tray icon
@@ -415,6 +420,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     taskbar_manager_for_loop.enforce();
                     let _ = set_taskbar_state(false);
                 }
+                IPCMessage::Toggle => {
+                    let is_hidden = should_hide.load(Ordering::SeqCst);
+
+                    if is_hidden {
+                        should_hide.store(false, Ordering::SeqCst);
+                        taskbar_manager_for_loop.restore();
+                        let _ = set_taskbar_state(true);
+		    } else {
+                        should_hide.store(true, Ordering::SeqCst);
+                        taskbar_manager_for_loop.enforce();
+                        let _ = set_taskbar_state(false);
+		    }
+                }
                 IPCMessage::Quit => {
                     should_hide.store(false, Ordering::SeqCst);
                     taskbar_manager_for_loop.restore();
@@ -436,6 +454,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 should_hide.store(true, Ordering::SeqCst);
                 taskbar_manager_for_loop.enforce();
                 let _ = set_taskbar_state(false);
+            } else if event_id == toggle_item.id() {
+                let is_hidden = should_hide.load(Ordering::SeqCst);
+                if is_hidden {
+                    should_hide.store(false, Ordering::SeqCst);
+                    taskbar_manager_for_loop.restore();
+                    let _ = set_taskbar_state(true);
+                } else {
+                    should_hide.store(true, Ordering::SeqCst);
+                    taskbar_manager_for_loop.enforce();
+                    let _ = set_taskbar_state(false);
+                }
             } else if event_id == quit_item.id() {
                 should_hide.store(false, Ordering::SeqCst);
                 taskbar_manager_for_loop.restore();

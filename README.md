@@ -61,6 +61,7 @@ Double-click `thide.exe` to run in system tray mode:
 - Right-click the tray icon to access the menu:
   - **Show Taskbar** - Make taskbar visible
   - **Hide Taskbar** - Hide the taskbar
+  - **Toggle Taskbar** - Hide if visible, show if hidden
   - **Quit** - Exit and restore taskbar
 
 ### CLI Mode
@@ -79,6 +80,9 @@ thide show
 
 # Hide the taskbar (if app is running)
 thide hide
+
+# Toggle the taskbar state (if app is running)
+thide toggle
 
 # Stop the app and restore taskbar
 thide stop
