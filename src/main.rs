@@ -35,6 +35,7 @@ const TASKBAR_MONITOR_INTERVAL_MS: u64 = 100;
 enum IPCMessage {
     Show,
     Hide,
+    Toggle,
     Quit,
 }
 
@@ -320,12 +321,14 @@ unsafe extern "system" fn ipc_window_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> windows::Win32::Foundation::LRESULT {
-    let (msg_show, msg_hide, msg_quit) = cli::get_message_ids();
+    let (msg_show, msg_hide, msg_toggle, msg_quit) = cli::get_message_ids();
 
     let ipc_message = if msg == msg_show {
         Some(IPCMessage::Show)
     } else if msg == msg_hide {
         Some(IPCMessage::Hide)
+    } else if msg == msg_toggle {
+        Some(IPCMessage::Toggle)
     } else if msg == msg_quit {
         PostQuitMessage(0);
         Some(IPCMessage::Quit)
@@ -343,6 +346,29 @@ unsafe extern "system" fn ipc_window_proc(
     }
 
     DefWindowProcW(hwnd, msg, wparam, lparam)
+}
+
+/// Execute the sequence required to display the taskbar
+fn taskbar_show(should_hide: &AtomicBool, manager: &TaskbarStateManager) {
+    should_hide.store(false, Ordering::SeqCst);
+    manager.restore();
+    let _ = set_taskbar_state(true);
+}
+
+/// Execute the sequence required to hide the taskbar
+fn taskbar_hide(should_hide: &AtomicBool, manager: &TaskbarStateManager) {
+    should_hide.store(true, Ordering::SeqCst);
+    manager.enforce();
+    let _ = set_taskbar_state(false);
+}
+
+/// Alternate the taskbar visibility state based on current atomic trackers
+fn taskbar_toggle(should_hide: &AtomicBool, manager: &TaskbarStateManager) {
+    if should_hide.load(Ordering::SeqCst) {
+        taskbar_show(should_hide, manager);
+    } else {
+        taskbar_hide(should_hide, manager);
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -364,9 +390,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tray_menu = Menu::new();
     let show_item = MenuItem::new("Show Taskbar", true, None);
     let hide_item = MenuItem::new("Hide Taskbar", true, None);
+    let toggle_item = MenuItem::new("Toggle Taskbar", true, None);
     let quit_item = MenuItem::new("Quit", true, None);
     tray_menu.append(&show_item)?;
     tray_menu.append(&hide_item)?;
+    tray_menu.append(&toggle_item)?;
     tray_menu.append(&quit_item)?;
 
     // Create tray icon
@@ -405,20 +433,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Handle IPC messages from CLI
         if let winit::event::Event::UserEvent(ipc_msg) = event {
             match ipc_msg {
-                IPCMessage::Show => {
-                    should_hide.store(false, Ordering::SeqCst);
-                    taskbar_manager_for_loop.restore();
-                    let _ = set_taskbar_state(true);
-                }
-                IPCMessage::Hide => {
-                    should_hide.store(true, Ordering::SeqCst);
-                    taskbar_manager_for_loop.enforce();
-                    let _ = set_taskbar_state(false);
-                }
+                IPCMessage::Show => taskbar_show(&should_hide, &taskbar_manager_for_loop),
+                IPCMessage::Hide => taskbar_hide(&should_hide, &taskbar_manager_for_loop),
+                IPCMessage::Toggle => taskbar_toggle(&should_hide, &taskbar_manager_for_loop),
                 IPCMessage::Quit => {
-                    should_hide.store(false, Ordering::SeqCst);
-                    taskbar_manager_for_loop.restore();
-                    let _ = set_taskbar_state(true);
+                    taskbar_show(&should_hide, &taskbar_manager_for_loop);
                     elwt.exit();
                 }
             }
@@ -429,17 +448,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let event_id = menu_event.id;
 
             if event_id == show_item.id() {
-                should_hide.store(false, Ordering::SeqCst);
-                taskbar_manager_for_loop.restore();
-                let _ = set_taskbar_state(true);
+                taskbar_show(&should_hide, &taskbar_manager_for_loop);
             } else if event_id == hide_item.id() {
-                should_hide.store(true, Ordering::SeqCst);
-                taskbar_manager_for_loop.enforce();
-                let _ = set_taskbar_state(false);
+                taskbar_hide(&should_hide, &taskbar_manager_for_loop);
+            } else if event_id == toggle_item.id() {
+                taskbar_toggle(&should_hide, &taskbar_manager_for_loop);
             } else if event_id == quit_item.id() {
-                should_hide.store(false, Ordering::SeqCst);
-                taskbar_manager_for_loop.restore();
-                let _ = set_taskbar_state(true);
+                taskbar_show(&should_hide, &taskbar_manager_for_loop);
                 elwt.exit();
             }
         }
