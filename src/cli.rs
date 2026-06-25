@@ -136,7 +136,7 @@ fn enable_autostart() -> Result<(), Box<dyn std::error::Error>> {
         );
         if result.is_err() {
             let _ = RegCloseKey(hkey);
-            return Err(windows::core::Error::from_win32().into());
+            return Err(windows::core::Error::from_hresult(result.to_hresult()).into());
         }
 
         let _ = RegCloseKey(hkey);
@@ -163,7 +163,7 @@ fn disable_autostart() -> Result<(), Box<dyn std::error::Error>> {
             &mut hkey,
         );
         if result.is_err() {
-            return Err(windows::core::Error::from_win32().into());
+            return Err(windows::core::Error::from_hresult(result.to_hresult()).into());
         }
 
         let value_name: Vec<u16> = "THide\0".encode_utf16().collect();
@@ -176,7 +176,7 @@ fn disable_autostart() -> Result<(), Box<dyn std::error::Error>> {
         } else if result == ERROR_FILE_NOT_FOUND {
             println!("Autostart was not enabled.");
         } else {
-            return Err(windows::core::Error::from_win32().into());
+            return Err(windows::core::Error::from_hresult(result.to_hresult()).into());
         }
     }
     Ok(())

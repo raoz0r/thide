@@ -124,7 +124,13 @@
                                 Name='thide.exe'
                                 DiskId='1'
                                 Source='$(var.CargoTargetBinDir)\thide.exe'
-                                KeyPath='yes'/>
+                                KeyPath='yes'>
+                                <Shortcut Id="ApplicationStartMenuShortcut"
+                                        Directory="ApplicationProgramsFolder"
+                                        Name="Taskbar Hide"
+                                        Description="A lightweight utility to hide/show Windows taskbar"
+                                        WorkingDirectory="Bin"/>
+                            </File>
                         </Component>
                     </Directory>
                 </Directory>
@@ -133,11 +139,6 @@
             <Directory Id="ProgramMenuFolder">
                 <Directory Id="ApplicationProgramsFolder" Name="Taskbar Hide">
                     <Component Id="ApplicationShortcut" Guid="D9C0B1E2-3F5A-4D8B-9E2F-1A7E8C9D3B4E">
-                        <Shortcut Id="ApplicationStartMenuShortcut"
-                                Name="Taskbar Hide"
-                                Description="A lightweight utility to hide/show Windows taskbar"
-                                Target="[#exe0]"
-                                WorkingDirectory="Bin"/>
                         <RemoveFolder Id="CleanUpShortCut" Directory="ApplicationProgramsFolder" On="uninstall"/>
                         <RegistryValue Root="HKCU" Key="Software\AmN\thide" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
                    </Component>
