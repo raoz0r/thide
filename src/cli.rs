@@ -1,5 +1,9 @@
-use windows::Win32::Foundation::{LPARAM, WPARAM};
+use windows::Win32::Foundation::{LPARAM, WPARAM, ERROR_FILE_NOT_FOUND};
 use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, PostMessageW, WM_APP};
+use windows::Win32::System::Registry::{
+    RegCloseKey, RegDeleteValueW, RegOpenKeyExW, RegSetValueExW, HKEY_CURRENT_USER, KEY_SET_VALUE,
+    REG_SZ,
+};
 
 // Custom message IDs for IPC
 const WM_THIDE_SHOW: u32 = WM_APP + 1;
@@ -98,63 +102,84 @@ fn start_gui() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Enable THide to start automatically on Windows login
 fn enable_autostart() -> Result<(), Box<dyn std::error::Error>> {
-    use std::process::Command;
-
     let exe_path = std::env::current_exe()?;
-    let exe_path_str = exe_path.to_string_lossy();
+    let exe_path_wide: Vec<u16> = exe_path
+        .to_string_lossy()
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
 
-    let output = Command::new("reg")
-        .args([
-            "add",
-            "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-            "/v",
-            "THide",
-            "/t",
-            "REG_SZ",
-            "/d",
-            &exe_path_str,
-            "/f",
-        ])
-        .output()?;
+    unsafe {
+        let mut hkey = windows::Win32::System::Registry::HKEY::default();
+        let subkey: Vec<u16> = "Software\\Microsoft\\Windows\\CurrentVersion\\Run\0"
+            .encode_utf16()
+            .collect();
 
-    if output.status.success() {
-        println!("✓ Autostart enabled successfully!");
-        println!("  THide will start automatically when you log in.");
-        Ok(())
-    } else {
-        let error = String::from_utf8_lossy(&output.stderr);
-        eprintln!("Failed to enable autostart: {}", error);
-        std::process::exit(1);
+        RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            windows::core::PCWSTR(subkey.as_ptr()),
+            0,
+            KEY_SET_VALUE,
+            &mut hkey,
+        ).ok()?;
+
+        let value_name: Vec<u16> = "THide\0".encode_utf16().collect();
+        let result = RegSetValueExW(
+            hkey,
+            windows::core::PCWSTR(value_name.as_ptr()),
+            0,
+            REG_SZ,
+            Some(std::slice::from_raw_parts(
+                exe_path_wide.as_ptr() as *const u8,
+                exe_path_wide.len() * 2,
+            )),
+        );
+        if result.is_err() {
+            let _ = RegCloseKey(hkey);
+            return Err(windows::core::Error::from_win32().into());
+        }
+
+        let _ = RegCloseKey(hkey);
     }
+
+    println!("✓ Autostart enabled successfully!");
+    println!("  THide will start automatically when you log in.");
+    Ok(())
 }
 
 /// Disable THide autostart on Windows login
 fn disable_autostart() -> Result<(), Box<dyn std::error::Error>> {
-    use std::process::Command;
+    unsafe {
+        let mut hkey = windows::Win32::System::Registry::HKEY::default();
+        let subkey: Vec<u16> = "Software\\Microsoft\\Windows\\CurrentVersion\\Run\0"
+            .encode_utf16()
+            .collect();
 
-    let output = Command::new("reg")
-        .args([
-            "delete",
-            "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-            "/v",
-            "THide",
-            "/f",
-        ])
-        .output()?;
+        let result = RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            windows::core::PCWSTR(subkey.as_ptr()),
+            0,
+            KEY_SET_VALUE,
+            &mut hkey,
+        );
+        if result.is_err() {
+            return Err(windows::core::Error::from_win32().into());
+        }
 
-    if output.status.success() {
-        println!("✓ Autostart disabled successfully!");
-        Ok(())
-    } else {
-        let error = String::from_utf8_lossy(&output.stderr);
-        if error.contains("unable to find") || error.contains("does not exist") {
+        let value_name: Vec<u16> = "THide\0".encode_utf16().collect();
+        let result = RegDeleteValueW(hkey, windows::core::PCWSTR(value_name.as_ptr()));
+
+        let _ = RegCloseKey(hkey);
+
+        if result.is_ok() {
+            println!("✓ Autostart disabled successfully!");
+        } else if result == ERROR_FILE_NOT_FOUND {
             println!("Autostart was not enabled.");
-            Ok(())
         } else {
-            eprintln!("Failed to disable autostart: {}", error);
-            std::process::exit(1)
+            return Err(windows::core::Error::from_win32().into());
         }
     }
+    Ok(())
 }
 
 /// Display CLI usage information
